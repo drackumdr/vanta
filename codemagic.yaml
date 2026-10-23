@@ -5,7 +5,7 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: stable
-      xcode: latest
+      xcode: 16.4
       cocoapods: default
     scripts:
       - name: Dependencias
@@ -16,6 +16,7 @@ workflows:
         script: flutter test
       - name: Build macOS (sin firma)
         script: |
+          flutter config --enable-macos-desktop
           export FLUTTER_XCODE_CODE_SIGN_IDENTITY=""
           export FLUTTER_XCODE_CODE_SIGNING_REQUIRED="NO"
           export FLUTTER_XCODE_CODE_SIGNING_ALLOWED="NO"
