@@ -95,13 +95,13 @@ class _DashboardPageState extends State<DashboardPage> {
       await SystemChrome.setEnabledSystemUIMode(
         value ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
       );
-    } else if (Platform.isWindows || Platform.isLinux) {
+    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       await wm.windowManager.setFullScreen(value);
     }
   }
 
   Future<void> _toggleVideoWall() async {
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       final isFull = await wm.windowManager.isFullScreen();
       _setVideoWall(!isFull);
     } else {
