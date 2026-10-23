@@ -159,7 +159,7 @@ class IsapiClient {
         request.headers['Authorization'] = authHeader;
       }
       final streamed = await _client.send(request).timeout(timeout);
-      return http.Response.fromStream(streamed);
+      return await http.Response.fromStream(streamed);
     } on IsapiException {
       rethrow;
     } on TimeoutException {
