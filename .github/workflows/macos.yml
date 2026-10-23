@@ -26,14 +26,55 @@ jobs:
       - name: Compilar para macOS (Release)
         run: flutter build macos --release
 
-      - name: Empaquetar aplicación (.zip)
+      - name: Empaquetar los 3 artefactos (Universal, Apple Silicon, Intel)
         run: |
           cd build/macos/Build/Products/Release
-          ditto -c -k --sequesterRsrc --keepParent vanta.app ../../../../../vanta-macos.zip
 
-      - name: Subir artefacto
+          # 1. Empaquetar Universal (ambas arquitecturas)
+          ditto -c -k --sequesterRsrc --keepParent vanta.app ../../../../../vanta-macos-universal.zip
+
+          # Función auxiliar para extraer una arquitectura específica
+          strip_arch() {
+            local app_dir="$1"
+            local arch="$2"
+            for bin in "$app_dir/Contents/MacOS/vanta" \
+                       "$app_dir/Contents/Frameworks/App.framework/App" \
+                       "$app_dir/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"; do
+              if [ -f "$bin" ]; then
+                if lipo "$bin" -verify_arch "$arch" 2>/dev/null; then
+                  lipo -thin "$arch" "$bin" -output "$bin" || true
+                fi
+              fi
+            done
+          }
+
+          # 2. Generar versión Apple Silicon (arm64)
+          cp -R vanta.app vanta-arm64.app
+          strip_arch "vanta-arm64.app" "arm64"
+          ditto -c -k --sequesterRsrc --keepParent vanta-arm64.app ../../../../../vanta-macos-arm64.zip
+
+          # 3. Generar versión Intel (x86_64)
+          cp -R vanta.app vanta-intel.app
+          strip_arch "vanta-intel.app" "x86_64"
+          ditto -c -k --sequesterRsrc --keepParent vanta-intel.app ../../../../../vanta-macos-intel.zip
+
+      - name: Subir artefacto Universal
         uses: actions/upload-artifact@v4
         with:
-          name: vanta-macos
-          path: vanta-macos.zip
+          name: vanta-macos-universal
+          path: vanta-macos-universal.zip
+          retention-days: 14
+
+      - name: Subir artefacto Apple Silicon (arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanta-macos-arm64
+          path: vanta-macos-arm64.zip
+          retention-days: 14
+
+      - name: Subir artefacto Intel (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanta-macos-intel
+          path: vanta-macos-intel.zip
           retention-days: 14
