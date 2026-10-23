@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/camera_model.dart';
@@ -13,7 +13,13 @@ import '../services/stream_manager.dart';
 
 /// Estado central de la aplicación (fuente de verdad de la UI).
 class AppState extends ChangeNotifier {
-  AppState();
+  AppState() {
+    streams.addListener(_onStreamsChanged);
+  }
+
+  void _onStreamsChanged() {
+    notifyListeners();
+  }
 
   static const _uuid = Uuid();
 
@@ -52,7 +58,14 @@ class AppState extends ChangeNotifier {
     await _hydrateDevices();
     _hydrateViews();
     _restoreLastLayout();
-    syncStreams();
+
+    final hasValidCamera = cells.any((c) => c != null && cameraById(c) != null);
+    if (!hasValidCamera && allCameras.isNotEmpty) {
+      showAllCameras();
+    } else {
+      syncStreams();
+    }
+
     _loading = false;
     _loaded = true;
     notifyListeners();
@@ -62,9 +75,16 @@ class AppState extends ChangeNotifier {
     final metas = _settings.devices;
     final list = <Device>[];
     for (final meta in metas) {
-      final password =
-          (await _secure.readPassword(meta['id'] as String)) ?? '';
-      list.add(Device.fromJson(meta, password: password));
+      final id = meta['id'] as String;
+      final password = (await _secure.readPassword(id)) ?? '';
+      final verificationCode = (await _secure.readVerificationCode(id)) ?? '';
+      list.add(
+        Device.fromJson(
+          meta,
+          password: password,
+          verificationCode: verificationCode,
+        ),
+      );
     }
     devices = list;
   }
@@ -109,10 +129,16 @@ class AppState extends ChangeNotifier {
   }
 
   List<Camera> get allCameras => [
-        for (final d in devices)
-          for (var ch = 1; ch <= (d.channelCount == 0 ? 1 : d.channelCount); ch++)
-            Camera.forDevice(d, ch),
-      ];
+    for (final d in devices)
+      for (final ch
+          in d.channelIds.isNotEmpty
+              ? d.channelIds
+              : List<int>.generate(
+                  d.channelCount == 0 ? 1 : d.channelCount,
+                  (i) => i + 1,
+                ))
+        Camera.forDevice(d, ch),
+  ];
 
   // --------------------------------------------------------- dispositivos
   Future<void> saveDevice(Device device) async {
@@ -123,17 +149,27 @@ class AppState extends ChangeNotifier {
       devices.add(device);
     }
     await _secure.writePassword(device.id, device.password);
+    await _secure.writeVerificationCode(device.id, device.verificationCode);
     await _persistDevices();
+
+    final hasValidCamera = cells.any((c) => c != null && cameraById(c) != null);
+    if (!hasValidCamera && allCameras.isNotEmpty) {
+      showAllCameras();
+    } else {
+      syncStreams();
+    }
     notifyListeners();
   }
 
   Future<void> removeDevice(String id) async {
     devices.removeWhere((d) => d.id == id);
     await _secure.deletePassword(id);
+    await _secure.deleteVerificationCode(id);
     await _persistDevices();
     final cameraIds = allCameras.map((c) => c.id).toSet();
-    cells =
-        cells.map((c) => (c != null && cameraIds.contains(c)) ? null : c).toList();
+    cells = cells
+        .map((c) => (c != null && cameraIds.contains(c)) ? null : c)
+        .toList();
     if (focusCameraId != null &&
         cameraIds.contains(focusCameraId!.split(':').first)) {
       focusCameraId = null;
@@ -151,7 +187,10 @@ class AppState extends ChangeNotifier {
     if (size == gridSize) return;
     final previous = cells;
     gridSize = size;
-    cells = List<String?>.generate(size.count, (i) => i < previous.length ? previous[i] : null);
+    cells = List<String?>.generate(
+      size.count,
+      (i) => i < previous.length ? previous[i] : null,
+    );
     activeViewId = null;
     _persistLayout();
     syncStreams();
@@ -176,12 +215,36 @@ class AppState extends ChangeNotifier {
 
   void clearSlot(int position) => assignCamera(position, null);
 
+  void showAllCameras() {
+    final cameras = allCameras;
+    final size = switch (cameras.length) {
+      0 || 1 => GridSize.one,
+      2 || 3 || 4 => GridSize.four,
+      5 || 6 => GridSize.six,
+      7 || 8 || 9 => GridSize.nine,
+      _ => GridSize.sixteen,
+    };
+    gridSize = size;
+    cells = List<String?>.generate(
+      size.count,
+      (i) => i < cameras.length ? cameras[i].id : null,
+    );
+    activeViewId = null;
+    _persistLayout();
+    syncStreams();
+    notifyListeners();
+  }
+
   void setFocusCamera(String? cameraId) {
     if (focusCameraId == cameraId) return;
     focusCameraId = cameraId;
     syncStreams();
-    notifyListeners();
+    // Notificación diferida a post-frame: este método se invoca también
+    // desde dispose()/handlers de teclado durante el frame (árbol bloqueado),
+    // y notificar ahí lanza "markNeedsBuild() called when widget tree was locked".
+    WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
   }
+  
 
   // --------------------------------------------------------------- vistas
   Future<void> saveAsView(String name) async {
@@ -227,6 +290,7 @@ class AppState extends ChangeNotifier {
   /// Calcula el conjunto deseado de streams y sincroniza (grid + foco).
   void syncStreams() {
     final desired = <String, String>{};
+    final vCodes = <String, String>{};
 
     void add(Camera camera, {required bool main}) {
       final device = deviceById(camera.deviceId);
@@ -236,6 +300,12 @@ class AppState extends ChangeNotifier {
         camera.channel,
         main: main,
       );
+      if (device.streamEncryption) {
+        final code = camera.effectiveVerificationCode(device);
+        if (code.isNotEmpty) {
+          vCodes[camera.id] = code;
+        }
+      }
     }
 
     final focus = cameraById(focusCameraId);
@@ -249,9 +319,12 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    streams
-        .sync(desired)
-        .catchError((Object e, StackTrace st) {
+    streams.sync(desired, verificationCodes: vCodes).then((_) {
+      notifyListeners();
+    }).catchError((
+      Object e,
+      StackTrace st,
+    ) {
       debugPrint('syncStreams error: $e');
     });
   }
@@ -265,6 +338,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    streams.removeListener(_onStreamsChanged);
     streams.disposeAll();
     super.dispose();
   }

@@ -50,4 +50,43 @@ class SecureStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_fallbackKey(deviceId));
   }
+
+  String _codeKey(String deviceId) => 'dev_vcode_$deviceId';
+  // ponytail: Sin backend seguro nativo (ej. Linux sin libsecret/keyring), el código de verificación
+  // se retiene únicamente en memoria durante la sesión activa para evitar persistir claves criptográficas
+  // en texto plano. Upgrade: integrar SecretService directo o archivo local cifrado con DPAPI/clave de host.
+  final Map<String, String> _inMemoryVCodeCache = {};
+
+  Future<String?> readVerificationCode(String deviceId) async {
+    try {
+      final v = await _storage.read(key: _codeKey(deviceId));
+      if (v != null) return v;
+    } catch (_) {}
+    return _inMemoryVCodeCache[deviceId];
+  }
+
+  Future<void> writeVerificationCode(String deviceId, String code) async {
+    if (code.isEmpty) {
+      await deleteVerificationCode(deviceId);
+      return;
+    }
+    _inMemoryVCodeCache[deviceId] = code;
+    try {
+      await _storage.write(key: _codeKey(deviceId), value: code);
+      // Limpiar cualquier residuo de versiones previas en SharedPreferences si existiera
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('dev_vcode_fallback_$deviceId');
+    } catch (_) {
+      // Si el almacenamiento seguro nativo no está disponible, permanece en memoria durante la sesión
+    }
+  }
+
+  Future<void> deleteVerificationCode(String deviceId) async {
+    _inMemoryVCodeCache.remove(deviceId);
+    try {
+      await _storage.delete(key: _codeKey(deviceId));
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('dev_vcode_fallback_$deviceId');
+  }
 }

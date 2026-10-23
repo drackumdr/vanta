@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/camera_model.dart';
 import '../models/device_model.dart';
 import '../state/app_state.dart';
+import 'tv/tv_focusable.dart';
 
 /// Selector de cámara por dispositivo (canales descubiertos).
 class CameraPickerDialog extends StatefulWidget {
@@ -51,9 +52,13 @@ class _CameraPickerDialogState extends State<CameraPickerDialog> {
               ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
+        TvFocusable(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => Navigator.of(context).pop(),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Text('Cancelar'),
+          ),
         ),
       ],
     );
@@ -118,18 +123,28 @@ class _DeviceSection extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final cam in cams)
-                  ActionChip(
-                    avatar: const Icon(Icons.videocam_outlined,
-                        size: 15,
-                        color: Colors.white54),
-                    label: Text(
-                      cam.name,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    side: const BorderSide(color: Color(0xFF2A2F3A)),
+                  TvFocusable(
+                    borderRadius: BorderRadius.circular(8),
                     backgroundColor: const Color(0xFF1D2026),
-                    labelStyle: const TextStyle(color: Colors.white),
-                    onPressed: () => Navigator.of(context).pop(cam),
+                    focusedBackgroundColor: const Color(0xFF1E3A5F),
+                    onTap: () => Navigator.of(context).pop(cam),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.videocam_outlined,
+                              size: 16, color: Color(0xFF00E5FF)),
+                          const SizedBox(width: 6),
+                          Text(
+                            cam.name,
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
               ],
             ),

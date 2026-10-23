@@ -49,6 +49,9 @@ object RtspPlugin {
             ec.setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     eventSink = events
+                    for (p in players.values) {
+                        p.emitCurrentState(force = true)
+                    }
                 }
 
                 override fun onCancel(arguments: Any?) {

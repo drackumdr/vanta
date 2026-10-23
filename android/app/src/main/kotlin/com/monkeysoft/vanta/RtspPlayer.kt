@@ -7,6 +7,8 @@ import android.view.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import io.flutter.view.TextureRegistry
@@ -25,9 +27,20 @@ class RtspPlayer(
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var surface: Surface? = null
-    private var lastState = STATE_IDLING
+    private var lastState = -1
+
+    private val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            500,  // minBufferMs
+            3000, // maxBufferMs
+            250,  // bufferForPlaybackMs
+            500   // bufferForPlaybackAfterRebufferMs
+        )
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
+        .setLoadControl(loadControl)
         .build()
         .apply {
             setVolume(0f)
@@ -48,21 +61,36 @@ class RtspPlayer(
                 emitCurrentState()
             }
 
+            override fun onRenderedFirstFrame() {
+                lastState = STATE_READY
+                emit("state", STATE_READY.toString())
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    texture.setDefaultBufferSize(videoSize.width, videoSize.height)
+                    emit("videoSize", "${videoSize.width}x${videoSize.height}")
+                }
+            }
+
             override fun onPlayerError(error: PlaybackException) {
+                lastState = STATE_IDLING
                 emit("error", friendlyError(error))
             }
         })
     }
 
     fun open(url: String) {
+        lastState = -1
+        player.stop()
         val source = RtspMediaSource.Factory()
             .setForceUseRtpTcp(true)
             .setUserAgent("VANTA/1.0")
-            .setTimeoutMs(8000L)
+            .setTimeoutMs(10000L)
             .createMediaSource(MediaItem.fromUri(url))
-        player.setMediaSource(source)
+        player.setMediaSource(source, true)
         player.prepare()
-        player.setPlayWhenReady(true)
+        player.play()
     }
 
     fun play() {
@@ -77,14 +105,14 @@ class RtspPlayer(
         player.volume = if (muted) 0f else 1f
     }
 
-    private fun emitCurrentState() {
+    fun emitCurrentState(force: Boolean = false) {
         val newState = when {
             player.playbackState == Player.STATE_IDLE -> STATE_IDLING
             player.playbackState == Player.STATE_BUFFERING -> STATE_BUFFERING
             player.playbackState == Player.STATE_ENDED -> STATE_ENDED
             else -> STATE_READY
         }
-        if (newState != lastState) {
+        if (force || newState != lastState) {
             lastState = newState
             emit("state", newState.toString())
         }

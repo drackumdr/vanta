@@ -1,6 +1,7 @@
 enum GridSize {
   one(1, 1),
   four(4, 2),
+  six(6, 3),
   nine(9, 3),
   sixteen(16, 4);
 
@@ -9,11 +10,12 @@ enum GridSize {
   final int columns;
 
   static GridSize fromCount(int count) => switch (count) {
-        1 => GridSize.one,
-        9 => GridSize.nine,
-        16 => GridSize.sixteen,
-        _ => GridSize.four,
-      };
+    1 => GridSize.one,
+    6 || 7 => GridSize.six,
+    9 => GridSize.nine,
+    16 => GridSize.sixteen,
+    _ => GridSize.four,
+  };
 }
 
 extension GridSizeX on GridSize {
@@ -36,15 +38,17 @@ class SurveillanceView {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'gridSize': gridSize.count,
-        'cells': cells,
-        'updatedAt': updatedAt.toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'gridSize': gridSize.count,
+    'cells': cells,
+    'updatedAt': updatedAt.toIso8601String(),
+  };
 
   factory SurveillanceView.fromJson(Map<String, dynamic> json) {
-    final gridSize = GridSize.fromCount((json['gridSize'] as num?)?.toInt() ?? 4);
+    final gridSize = GridSize.fromCount(
+      (json['gridSize'] as num?)?.toInt() ?? 4,
+    );
     final rawCells = (json['cells'] as List?) ?? const [];
     final cells = List<String?>.generate(
       gridSize.count,
@@ -57,7 +61,7 @@ class SurveillanceView {
       cells: cells,
       updatedAt:
           DateTime.tryParse((json['updatedAt'] as String?) ?? '') ??
-              DateTime.now(),
+          DateTime.now(),
     );
   }
 }

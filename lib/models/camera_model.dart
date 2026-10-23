@@ -11,6 +11,7 @@ class Camera {
   final String name;
   final String resDesc;
   final bool enabled;
+  final String? verificationCode;
 
   const Camera({
     required this.id,
@@ -19,6 +20,7 @@ class Camera {
     required this.name,
     this.resDesc = '',
     this.enabled = true,
+    this.verificationCode,
   });
 
   static String idFor(String deviceId, int channel) => '$deviceId:$channel';
@@ -29,6 +31,7 @@ class Camera {
     String? name,
     String resDesc = '',
     bool enabled = true,
+    String? verificationCode,
   }) {
     return Camera(
       id: idFor(device.id, channel),
@@ -37,8 +40,18 @@ class Camera {
       name: name ?? '${device.name} · CH$channel',
       resDesc: resDesc,
       enabled: enabled,
+      verificationCode: verificationCode ??
+          (device.streamEncryption ? device.verificationCode : null),
     );
   }
 
   bool get videoSignal => resDesc.trim().toUpperCase() != 'NO VIDEO';
+
+  /// Obtiene el código de verificación efectivo (propio o del dispositivo).
+  String effectiveVerificationCode(Device? device) {
+    if (verificationCode != null && verificationCode!.isNotEmpty) {
+      return verificationCode!;
+    }
+    return device?.verificationCode ?? '';
+  }
 }

@@ -20,9 +20,9 @@ class IsapiException implements Exception {
 class _DigestChallenge {
   final String realm;
   final String nonce;
-  final String qop;
+  final String? qop;
   final String? opaque;
-  _DigestChallenge({required this.realm, required this.nonce, required this.qop, this.opaque});
+  _DigestChallenge({required this.realm, required this.nonce, this.qop, this.opaque});
 }
 
 /// Cliente HTTP ISAPI con autenticación Digest (RFC-2617 qop=auth).
@@ -35,7 +35,8 @@ class IsapiClient {
     required this.password,
     this.https = false,
     this.timeout = const Duration(seconds: 8),
-  });
+    http.Client? client,
+  }) : _client = client ?? http.Client();
 
   final String host;
   final int port;
@@ -44,7 +45,7 @@ class IsapiClient {
   final bool https;
   final Duration timeout;
 
-  final http.Client _client = http.Client();
+  final http.Client _client;
   _DigestChallenge? _challenge;
   String _cnonce = _randomCnonce();
   int _nc = 0;
@@ -62,6 +63,13 @@ class IsapiClient {
     String contentType = 'application/xml; charset=UTF-8',
   }) =>
       _send('POST', path, body: body, contentType: contentType);
+
+  Future<http.Response> put(
+    String path, {
+    String? body,
+    String contentType = 'application/xml; charset=UTF-8',
+  }) =>
+      _send('PUT', path, body: body, contentType: contentType);
 
   Future<http.Response> _send(
     String method,
@@ -139,13 +147,16 @@ class IsapiClient {
   }) async {
     try {
       final request = http.Request(method, uri);
-      request.headers['Content-Type'] = contentType ?? 'application/json';
-      request.headers['Accept'] = acceptBinary ? '*/*' : 'text/xml';
+      if (body != null && body.isNotEmpty) {
+        request.headers['Content-Type'] =
+            contentType ?? 'application/xml; charset=UTF-8';
+        request.body = body;
+      } else if (contentType != null) {
+        request.headers['Content-Type'] = contentType;
+      }
+      request.headers['Accept'] = acceptBinary ? '*/*' : '*/*';
       if (authHeader != null) {
         request.headers['Authorization'] = authHeader;
-      }
-      if (body != null && body.isNotEmpty) {
-        request.body = body;
       }
       final streamed = await _client.send(request).timeout(timeout);
       return http.Response.fromStream(streamed);
@@ -161,14 +172,19 @@ class IsapiClient {
   _DigestChallenge? _parseChallenge(String? header) {
     if (header == null || !header.startsWith('Digest')) return null;
     final params = <String, String>{};
-    final regex = RegExp(r'(\w+)="([^"]*)"');
+    final regex = RegExp(r'(\w+)=(?:"([^"]*)"|([^,\s]+))');
     for (final m in regex.allMatches(header)) {
-      params[m.group(1)!.toLowerCase()] = m.group(2)!;
+      params[m.group(1)!.toLowerCase()] = (m.group(2) ?? m.group(3) ?? '').trim();
+    }
+    String? qop = params['qop'];
+    if (qop != null) {
+      final options = qop.split(',').map((s) => s.trim().toLowerCase()).toList();
+      qop = options.contains('auth') ? 'auth' : (options.isNotEmpty ? options.first : null);
     }
     return _DigestChallenge(
       realm: params['realm'] ?? '',
       nonce: params['nonce'] ?? '',
-      qop: params['qop'] ?? 'auth',
+      qop: qop,
       opaque: params['opaque'],
     );
   }
@@ -176,19 +192,31 @@ class IsapiClient {
   String? _buildAuth(String method, Uri uri) {
     final c = _challenge;
     if (c == null || c.nonce.isEmpty) return null;
-    _nc++;
-    final ncStr = _nc.toRadixString(16).padLeft(8, '0');
     final digestUri = uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
     final ha1 = _md5('$username:${c.realm}:$password');
     final ha2 = _md5('$method:$digestUri');
-    final response = _md5('$ha1:${c.nonce}:$ncStr:$_cnonce:${c.qop}:$ha2');
-    final sb = StringBuffer()
-      ..write('Digest username="$username", realm="${c.realm}", nonce="${c.nonce}", ')
-      ..write('uri="$digestUri", qop=${c.qop}, nc=$ncStr, cnonce="$_cnonce", response="$response"');
-    if (c.opaque != null && c.opaque!.isNotEmpty) {
-      sb.write(', opaque="${c.opaque}"');
+
+    if (c.qop != null && c.qop!.isNotEmpty) {
+      _nc++;
+      final ncStr = _nc.toRadixString(16).padLeft(8, '0');
+      final response = _md5('$ha1:${c.nonce}:$ncStr:$_cnonce:${c.qop}:$ha2');
+      final sb = StringBuffer()
+        ..write('Digest username="$username", realm="${c.realm}", nonce="${c.nonce}", ')
+        ..write('uri="$digestUri", qop=${c.qop}, nc=$ncStr, cnonce="$_cnonce", response="$response"');
+      if (c.opaque != null && c.opaque!.isNotEmpty) {
+        sb.write(', opaque="${c.opaque}"');
+      }
+      return sb.toString();
+    } else {
+      final response = _md5('$ha1:${c.nonce}:$ha2');
+      final sb = StringBuffer()
+        ..write('Digest username="$username", realm="${c.realm}", nonce="${c.nonce}", ')
+        ..write('uri="$digestUri", response="$response"');
+      if (c.opaque != null && c.opaque!.isNotEmpty) {
+        sb.write(', opaque="${c.opaque}"');
+      }
+      return sb.toString();
     }
-    return sb.toString();
   }
 
   static String _md5(String input) =>

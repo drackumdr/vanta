@@ -87,29 +87,64 @@ class VantaTheme {
     );
   }
 
-  /// Acción rápida "Pill" para elegir layout (1/4/9/16).
+  /// Acción rápida "Pill" para elegir layout (1/4/9/16) compatible con D-Pad y touch.
   static Widget layoutPill({
     required String label,
     required bool selected,
     VoidCallback? onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? accent : surfaceHigh,
-          borderRadius: BorderRadius.circular(18),
-          border: selected ? null : Border.all(color: border),
+    return FocusableActionDetector(
+      enabled: onTap != null,
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            onTap?.call();
+            return null;
+          },
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.black : textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+      },
+      child: Builder(
+        builder: (context) {
+          final focused = Focus.of(context).hasFocus;
+          return GestureDetector(
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: selected
+                    ? accent
+                    : (focused ? const Color(0xFF282D37) : surfaceHigh),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: focused
+                      ? const Color(0xFF00E5FF)
+                      : (selected ? accent : border),
+                  width: focused ? 2.0 : 1.0,
+                ),
+                boxShadow: focused
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x6600E5FF),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? Colors.black
+                      : (focused ? const Color(0xFF00E5FF) : textSecondary),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

@@ -11,7 +11,8 @@ import 'state/app_state.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+  if (!kIsWeb &&
+      (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
     mk.MediaKit.ensureInitialized();
     wm.windowManager.ensureInitialized();
   }

@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../../video/encryption/rtsp_decryption_proxy.dart';
 import '../../video/rtsp_session.dart';
 import '../../video/video_sink.dart';
 import '../../widgets/camera_tile.dart';
 
 /// Reproduce un segmento de grabación vía RTSP por ventana de tiempo.
 class PlaybackPage extends StatefulWidget {
-  const PlaybackPage({super.key, required this.url, required this.title});
+  const PlaybackPage({
+    super.key,
+    required this.url,
+    required this.title,
+    this.verificationCode = '',
+  });
 
   final String url;
   final String title;
+  final String verificationCode;
 
   @override
   State<PlaybackPage> createState() => _PlaybackPageState();
@@ -17,6 +24,7 @@ class PlaybackPage extends StatefulWidget {
 
 class _PlaybackPageState extends State<PlaybackPage> {
   VideoSink? _session;
+  RtspDecryptionProxy? _proxy;
   bool _ready = false;
   String? _error;
   bool _controls = true;
@@ -30,9 +38,21 @@ class _PlaybackPageState extends State<PlaybackPage> {
 
   Future<void> _create() async {
     try {
-      final session = await createVideoSink(widget.url);
+      var playUrl = widget.url;
+      if (widget.verificationCode.isNotEmpty) {
+        final proxy = RtspDecryptionProxy(
+          targetUrl: widget.url,
+          verificationCode: widget.verificationCode,
+        );
+        await proxy.start();
+        _proxy = proxy;
+        playUrl = proxy.loopbackUrl;
+      }
+
+      final session = await createVideoSink(playUrl);
       if (!mounted) {
         await session.dispose();
+        await _proxy?.dispose();
         return;
       }
       setState(() => _session = session);
@@ -58,6 +78,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
   @override
   void dispose() {
     _session?.dispose();
+    _proxy?.dispose();
     super.dispose();
   }
 

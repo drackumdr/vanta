@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 @immutable
 class RecordingSegment {
   final String trackId;
-  final DateTime startUtc;
-  final DateTime endUtc;
+  final DateTime startLocal;
+  final DateTime endLocal;
   final String? contentType;
   final String? codecType;
   final String? playbackUri;
@@ -12,18 +12,25 @@ class RecordingSegment {
 
   const RecordingSegment({
     required this.trackId,
-    required this.startUtc,
-    required this.endUtc,
+    required this.startLocal,
+    required this.endLocal,
     this.contentType,
     this.codecType,
     this.playbackUri,
     this.name,
   });
 
-  bool get isTiming =>
-      contentType?.contains('timing') ?? (name != null && name!.contains('timing'));
+  /// Alias de compatibilidad
+  DateTime get startUtc => startLocal;
+  DateTime get endUtc => endLocal;
 
-  Duration get duration => endUtc.difference(startUtc);
+  bool get isTiming =>
+      (contentType != null && contentType!.toLowerCase().contains('timing')) ||
+      (name != null &&
+          (name!.toLowerCase().contains('timing') ||
+              name!.toLowerCase().contains('schedule')));
+
+  Duration get duration => endLocal.difference(startLocal);
 }
 
 @immutable

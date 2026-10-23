@@ -1,5 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import 'video_sink.dart';
 
@@ -16,11 +17,14 @@ class RtspSession implements VideoSink {
   final ValueNotifier<RenderState> state = ValueNotifier(RenderState.loading);
   @override
   final ValueNotifier<String?> error = ValueNotifier(null);
+  /// Aspecto real del stream (ancho/alto) cuando Media3 lo reporta.
+  final ValueNotifier<double?> aspect = ValueNotifier(null);
 
   @override
   bool get isSubstream => _isSubstream;
 
   bool _isSubstream = false;
+  bool _disposed = false;
 
   static const MethodChannel _channel = MethodChannel('vanta/rtsp');
   static const EventChannel _events = EventChannel('vanta/rtsp/events');
@@ -28,6 +32,7 @@ class RtspSession implements VideoSink {
   static bool _listening = false;
 
   static Future<RtspSession> create(String url) async {
+    _startListening();
     final result =
         await _channel.invokeMethod('create', <String, dynamic>{'url': url});
     final session = RtspSession(
@@ -35,7 +40,6 @@ class RtspSession implements VideoSink {
       result['textureId'] as int,
     );
     _sessions[session.playerId] = session;
-    _startListening();
     return session;
   }
 
@@ -54,18 +58,50 @@ class RtspSession implements VideoSink {
     switch (type) {
       case 'state':
         final s = int.tryParse(payload ?? '-1') ?? -1;
-        state.value = switch (s) {
-          2 => RenderState.ready,
-          3 => RenderState.ended,
-          0 => RenderState.idle,
-          _ => RenderState.loading,
-        };
-        if (state.value == RenderState.ready) error.value = null;
+        _later(() {
+          state.value = switch (s) {
+            2 => RenderState.ready,
+            3 => RenderState.error,
+            0 => RenderState.idle,
+            _ => RenderState.loading,
+          };
+          if (state.value == RenderState.ready) {
+            error.value = null;
+          } else if (state.value == RenderState.error && error.value == null) {
+            error.value = 'Transmisión finalizada';
+          }
+        });
+      case 'videoSize':
+        final parts = payload?.split('x');
+        final w = parts != null && parts.length == 2 ? int.tryParse(parts[0]) : null;
+        final h = parts != null && parts.length == 2 ? int.tryParse(parts[1]) : null;
+        if (w != null && h != null && w > 0 && h > 0) {
+          final ratio = (w < h ||
+                  (w == 960 && h == 1080) ||
+                  (w == 640 && h == 720) ||
+                  (w >= 1280 || h >= 720))
+              ? (16 / 9)
+              : (w / h);
+          _later(() => aspect.value = ratio);
+        }
       case 'error':
-        state.value = RenderState.error;
-        error.value = payload ?? 'Error de reproducción';
+        _later(() {
+          state.value = RenderState.error;
+          error.value = payload ?? 'Error de reproducción';
+        });
       default:
         break;
+    }
+  }
+
+  void _later(VoidCallback update) {
+    final phase = WidgetsBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle) {
+      update();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_disposed) update();
+      });
     }
   }
 
@@ -78,8 +114,10 @@ class RtspSession implements VideoSink {
         <String, dynamic>{'playerId': playerId, 'url': url},
       );
     } on PlatformException {
-      state.value = RenderState.error;
-      error.value = 'No se pudo reproducir el video';
+      _later(() {
+        state.value = RenderState.error;
+        error.value = 'No se pudo reproducir el video';
+      });
     }
   }
 
@@ -99,6 +137,7 @@ class RtspSession implements VideoSink {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _sessions.remove(playerId);
     try {
       await _channel.invokeMethod(
@@ -106,7 +145,7 @@ class RtspSession implements VideoSink {
         <String, dynamic>{'playerId': playerId},
       );
     } finally {
-      state.value = RenderState.idle;
+      _later(() => state.value = RenderState.idle);
     }
   }
 }

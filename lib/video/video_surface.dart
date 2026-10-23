@@ -21,15 +21,20 @@ class VideoSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     if (sink is RtspSession) {
       final s = sink as RtspSession;
-      if (s.textureId == 0) return const SizedBox.shrink();
-      return Center(
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Texture(
+      if (s.textureId < 0) return const SizedBox.shrink();
+      return ValueListenableBuilder<double?>(
+        valueListenable: s.aspect,
+        builder: (context, aspect, _) {
+          final texture = Texture(
             textureId: s.textureId,
             filterQuality: FilterQuality.low,
-          ),
-        ),
+          );
+          if (!fullscreen) return texture;
+          final ratio = (aspect != null && aspect > 0) ? aspect : 16 / 9;
+          return Center(
+            child: AspectRatio(aspectRatio: ratio, child: texture),
+          );
+        },
       );
     }
     if (sink is DesktopVideoSession) {
@@ -61,9 +66,7 @@ class _DesktopVideoSurface extends StatelessWidget {
           controller: session.controller,
           controls: mkv_controls.NoVideoControls,
           wakelock: false,
-          fit: fullscreen || !session.isSubstream
-              ? BoxFit.contain
-              : BoxFit.fill,
+          fit: fullscreen ? BoxFit.contain : BoxFit.fill,
           aspectRatio: aspect,
         );
       },
@@ -71,23 +74,31 @@ class _DesktopVideoSurface extends StatelessWidget {
   }
 
   double? _aspectOf(mk.VideoParams? params) {
-    if (params == null) return null;
+    if (params == null) return 16 / 9;
     final width = params.w;
     final height = params.h;
+    // 960x1080 (1080 Lite / 1080N), 640x720 (720N) o cualquier stream
+    // donde el ancho sea menor que el alto es anamórfico y debe estirarse a 16:9.
     if (width != null && height != null && width > 0 && height > 0) {
-      // Los primarios HD de este DVR entregan a veces un display aspect
-      // incorrecto aunque la imagen sea panorámica. Sus perfiles HD son 16:9;
-      // los substreams de baja resolución sí deben conservar w/h.
-      if (width >= 1280 || height >= 720) return 16 / 9;
+      if (width < height ||
+          (width == 960 && height == 1080) ||
+          (width == 640 && height == 720) ||
+          (width >= 1280 || height >= 720)) {
+        return 16 / 9;
+      }
       return width / height;
     }
     final dw = params.dw;
     final dh = params.dh;
     if (dw != null && dh != null && dw > 0 && dh > 0) {
+      if (dw < dh) return 16 / 9;
       return dw / dh;
     }
     final aspect = params.aspect;
-    if (aspect != null && aspect.isFinite && aspect > 0) return aspect;
-    return null;
+    if (aspect != null && aspect.isFinite && aspect > 0) {
+      if (aspect < 1.0) return 16 / 9;
+      return aspect;
+    }
+    return 16 / 9;
   }
 }
